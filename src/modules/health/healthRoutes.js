@@ -5,6 +5,17 @@ import { checkRedisConnection } from '../../config/redis.js';
 export const healthRouter = Router();
 
 /**
+ * Base health endpoint: returns overall service status and uptime.
+ */
+healthRouter.get('/', (_req, res) => {
+  res.status(200).json({
+    status: 'healthy',
+    uptime: process.uptime(),
+    timestamp: new Date().toISOString()
+  });
+});
+
+/**
  * Liveness probe: verifies that the Node.js process is responsive.
  * Does not check external dependencies.
  */

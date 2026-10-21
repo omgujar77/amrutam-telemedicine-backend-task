@@ -109,7 +109,14 @@ describe('Security Hardening & IDOR Authorization Boundaries (Phase 7)', () => {
         .post('/api/v1/consultations/consultation-100/prescriptions')
         .set('Authorization', `Bearer ${doctorTwoToken}`)
         .send({
-          medicines: 'Ashwagandha Churna 500mg',
+          medicines: [
+            {
+              name: 'Ashwagandha Churna',
+              dosage: '500mg',
+              frequency: 'Twice daily',
+              duration: '14 days'
+            }
+          ],
           dosageInstructions: 'Take 1 spoon twice daily with warm milk'
         });
 

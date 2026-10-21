@@ -4,15 +4,16 @@ import { redis } from '../../config/redis.js';
 import { env } from '../../config/env.js';
 import { logger } from '../logger/logger.js';
 
-let store;
-try {
-  // Use Redis store if Redis is available
-  store = new RedisStore({
-    sendCommand: (...args) => redis.call(...args),
-    prefix: 'rl:auth:'
-  });
-} catch (err) {
-  logger.warn({ err: err.message }, 'Failed to initialize Redis rate limit store; falling back to memory');
+function createRedisStore(prefix) {
+  try {
+    return new RedisStore({
+      sendCommand: (...args) => redis.call(...args),
+      prefix
+    });
+  } catch (err) {
+    logger.warn({ err: err.message, prefix }, 'Failed to initialize Redis rate limit store; falling back to memory');
+    return undefined;
+  }
 }
 
 /**
@@ -23,7 +24,7 @@ export const authRateLimiter = rateLimit({
   max: env.NODE_ENV === 'test' ? 1000 : 20, // 20 requests per windowMs (relaxed in test)
   standardHeaders: true, // Return standard rate limit info in `RateLimit-*` headers
   legacyHeaders: false, // Disable `X-RateLimit-*` headers
-  store,
+  store: createRedisStore('rl:auth:'),
   message: {
     success: false,
     error: {
@@ -57,7 +58,7 @@ export const mfaRateLimiter = rateLimit({
   max: env.NODE_ENV === 'test' ? 1000 : 5, // 5 failed attempts per window (relaxed in test)
   standardHeaders: true,
   legacyHeaders: false,
-  store,
+  store: createRedisStore('rl:mfa:'),
   message: {
     success: false,
     error: {

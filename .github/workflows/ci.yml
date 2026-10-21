@@ -1,0 +1,88 @@
+name: Continuous Integration & Reliability Pipeline
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+    branches:
+      - main
+      - master
+
+permissions:
+  contents: read
+
+jobs:
+  validate-and-test:
+    name: Build, Lint, Test & Audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: amrutam_test_user
+          POSTGRES_PASSWORD: amrutam_test_password
+          POSTGRES_DB: amrutam_ci_test_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      NODE_ENV: test
+      PORT: 5001
+      LOG_LEVEL: warn
+      DATABASE_URL: "postgresql://amrutam_test_user:amrutam_test_password@localhost:5432/amrutam_ci_test_db?schema=public"
+      TEST_DATABASE_URL: "postgresql://amrutam_test_user:amrutam_test_password@localhost:5432/amrutam_ci_test_db?schema=public"
+      REDIS_URL: "redis://localhost:6379"
+      JWT_ACCESS_SECRET: "ci-test-jwt-access-secret-minimum-32-characters-key"
+      JWT_REFRESH_SECRET: "ci-test-jwt-refresh-secret-minimum-32-characters-key"
+      MFA_ENCRYPTION_KEY: "ci-test-mfa-encryption-key-minimum-32-characters-key"
+      COOKIE_SECURE: "false"
+
+    steps:
+      - name: 1. Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 2. Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: 3. Install dependencies deterministically
+        run: npm ci
+
+      - name: 4. Validate Prisma database schema
+        run: npx prisma validate
+
+      - name: 5. Generate Prisma Client
+        run: npx prisma generate
+
+      - name: 6. Run fast unit test suite (isolated from database)
+        run: npm run test:unit
+
+      - name: 7. Deploy database migrations to CI PostgreSQL service
+        run: npx prisma migrate deploy
+
+      - name: 8. Run PostgreSQL integration, concurrency & lifecycle tests
+        run: npm run test:integration
+
+      - name: 9. Run npm dependency security audit
+        run: npm audit --audit-level=high

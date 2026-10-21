@@ -18,6 +18,8 @@ import { bookingRouter } from './modules/bookings/booking.routes.js';
 import { consultationRouter } from './modules/consultations/consultation.routes.js';
 import { prescriptionRouter } from './modules/prescriptions/prescription.routes.js';
 import { adminRouter } from './modules/admin/admin.routes.js';
+import { traceMiddleware } from './common/tracing/tracing.js';
+import { httpMetricsMiddleware, metricsEndpointHandler } from './common/metrics/metricsMiddleware.js';
 
 export const app = express();
 
@@ -28,10 +30,16 @@ app.use(
   })
 );
 
+// Distributed Tracing: Attach W3C TraceContext (traceId, spanId, traceparent)
+app.use(traceMiddleware);
+
 // Request ID attachment (generates or forwards X-Request-Id)
 app.use(requestIdMiddleware);
 
-// Structured HTTP request logging
+// Prometheus HTTP Request Metrics Middleware
+app.use(httpMetricsMiddleware);
+
+// Structured HTTP request logging with trace correlation
 app.use(
   pinoHttp({
     logger,
@@ -41,10 +49,12 @@ app.use(
       if (res.statusCode >= 400) return 'warn';
       return 'info';
     },
-    // Don't log request or response bodies by default
+    // Correlate request ID and distributed trace IDs without logging bodies
     serializers: {
       req: (req) => ({
         id: req.id,
+        traceId: req.traceId,
+        spanId: req.spanId,
         method: req.method,
         url: req.url,
         remoteAddress: req.remoteAddress
@@ -62,6 +72,9 @@ app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
 // Cookie parser for secure HttpOnly refresh token cookies
 app.use(cookieParser());
+
+// Prometheus metrics endpoint (GET /metrics)
+app.get('/metrics', metricsEndpointHandler);
 
 // Health check routes
 app.use('/health', healthRouter);

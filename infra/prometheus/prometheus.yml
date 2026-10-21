@@ -1,0 +1,19 @@
+# ==============================================================================
+# Prometheus Configuration for Amrutam Telemedicine Backend
+# Scrapes metrics from the API container on the internal Docker bridge network
+# ==============================================================================
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: 'amrutam-backend-api'
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+    scrape_timeout: 5s
+    static_configs:
+      - targets: ['api:5000']
+        labels:
+          service: 'amrutam-api'
+          env: 'development'

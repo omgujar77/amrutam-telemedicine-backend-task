@@ -38,10 +38,11 @@ COPY --from=builder /usr/src/app/node_modules ./node_modules
 COPY --from=builder /usr/src/app/package*.json ./
 COPY --from=builder /usr/src/app/prisma ./prisma
 
-# Copy application source code
+# Copy application source code and API documentation
 COPY src ./src
+COPY docs ./docs
 
-# Create non-root user and assign permissions
+# Use non-root node user provided by node:alpine base image
 USER node
 
 # Expose HTTP port

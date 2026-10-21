@@ -25,7 +25,26 @@ Production-oriented backend foundation and relational data layer for **Amrutam T
 
 ---
 
-## 2. Project Directory Structure
+## 2. Complete Architecture & Documentation Directory
+
+Every technical specification, architectural decision, security audit, and disaster recovery runbook is documented under [`docs/`](docs/):
+
+| Document | File Path | Scope & Key Contents |
+| :--- | :--- | :--- |
+| **System Architecture** | [`docs/architecture.md`](docs/architecture.md) | Full 2–4 page architecture document, domain modules, Mermaid system diagrams, data flows, and scaling boundaries. |
+| **Entity Relationship Diagram** | [`docs/er-diagram.md`](docs/er-diagram.md) | Comprehensive 11-entity relational schema, primary/foreign keys, unique constraints, and B-tree indexes. |
+| **Booking Sequence Diagram** | [`docs/booking-sequence.md`](docs/booking-sequence.md) | Sequence diagram showing atomic slot reservation, idempotency replay, 409 conflict, and rollback branches. |
+| **Security Threat Model** | [`docs/threat-model.md`](docs/threat-model.md) | Asset classification, trust boundaries, prioritized STRIDE threat matrix, and residual risk tracking. |
+| **Security Checklist** | [`docs/security-checklist.md`](docs/security-checklist.md) | Practical audit review checklist covering IAM, MFA, RBAC, IDOR, encryption, and production readiness. |
+| **Disaster Recovery Strategy** | [`docs/backup-and-disaster-recovery.md`](docs/backup-and-disaster-recovery.md) | Proposed RPO/RTO targets, automated backup routines, key rotation playbooks, and step-by-step restore guide. |
+| **Reliability & Scaling** | [`docs/reliability-and-scaling.md`](docs/reliability-and-scaling.md) | Safe vs. unsafe retries, Redis caching trade-offs, table partitioning, connection pooling, and horizontal scaling. |
+| **Known Limitations** | [`docs/known-limitations.md`](docs/known-limitations.md) | Transparent disclosure of prototype boundaries, verification gaps, and production enhancement roadmap. |
+| **OpenAPI Specification** | [`docs/openapi.yaml`](docs/openapi.yaml) | Complete OpenAPI 3.0.3 REST specification documenting all 22 platform endpoints. |
+| **Credentials & Setup Guide** | [`docs/credentials-guide.md`](docs/credentials-guide.md) | Safe environment configuration and Supabase/PostgreSQL connection string setup guide. |
+
+---
+
+## 3. Project Directory Structure
 
 ```text
 amrutam-telemedicine-backend/
@@ -660,6 +679,183 @@ The centralized error middleware (`src/common/errors/errorHandler.js`) formats a
 - **Interactive Documentation**: Served at `http://localhost:5000/api-docs` in development mode using `swagger-ui-express`.
 - **Raw OpenAPI Spec**: Available in JSON format at `http://localhost:5000/api-docs/json`.
 - **Specification File**: [docs/openapi.yaml](file:///c:/Users/ASUS/OneDrive/Desktop/amrutam-telemedicine-backend/docs/openapi.yaml) provides comprehensive OpenAPI 3.0.3 documentation covering 22 endpoints across Authentication, MFA, Doctors, Bookings, Consultations, Prescriptions, Admin Operations, and Analytics.
+
+---
+
+## 14. Phase 9: Automated Tests and Reliability
+
+The backend includes a comprehensive, multi-tiered automated test suite built on **Vitest**, **Supertest**, and **Prisma Client**.
+
+### 14.1. Test Suite Architecture
+
+| Test Category | File / Directory | Description | Dependencies |
+| :--- | :--- | :--- | :--- |
+| **Unit & Business Rules** | `tests/unit/` | Fast, deterministic business logic, state transition matrix, token security, and validation tests | In-memory mocks (no external services needed) |
+| **Transaction & Rollback** | `tests/unit/rollback.test.js` | Verifies atomic rollback of slots, bookings, and idempotency records upon failures | In-memory transaction callback spy |
+| **Idempotency & Replay** | `tests/unit/idempotency.test.js` | Validates request fingerprinting, duplicate replays, 409 mismatch conflicts, and user isolation | Mocked database |
+| **Security & IDOR** | `tests/unit/security.test.js` | Enforces resource ownership boundaries, non-assigned doctor rejections, and log redaction | Express app + Vitest |
+| **PostgreSQL Integration** | `tests/integration/` | Live database-backed tests for schemas, constraints, consultation lifecycle, and Redis health | Isolated PostgreSQL / Redis |
+| **Booking Concurrency** | `tests/integration/concurrency.test.js` | Real concurrent requests (`Promise.all`) testing PostgreSQL atomic updates and double-booking prevention | Isolated PostgreSQL |
+
+### 14.2. Running Tests
+
+```bash
+# 1. Run all fast unit tests (no database required)
+npm run test:unit
+
+# 2. Run PostgreSQL integration & concurrency tests (requires isolated test database)
+npm run test:integration
+
+# 3. Run the full comprehensive test suite
+npm test
+```
+
+### 14.3. Isolated Test Database Setup Guide
+
+Database-mutating integration and concurrency tests should **always** run against an isolated PostgreSQL instance to protect development and production databases.
+
+#### Option A: Local Docker PostgreSQL (Recommended)
+```bash
+# Start an isolated PostgreSQL container on port 5433 (separate from standard 5432)
+docker run --name amrutam-test-postgres \
+  -e POSTGRES_USER=amrutam_user \
+  -e POSTGRES_PASSWORD=amrutam_password \
+  -e POSTGRES_DB=amrutam_test_db \
+  -p 5433:5432 \
+  -d postgres:16-alpine
+
+# In your .env file, specify the dedicated test database URL:
+TEST_DATABASE_URL="postgresql://amrutam_user:amrutam_password@localhost:5433/amrutam_test_db?schema=public"
+
+# Deploy existing migrations to the test database
+DATABASE_URL="postgresql://amrutam_user:amrutam_password@localhost:5433/amrutam_test_db?schema=public" npx prisma migrate deploy
+```
+
+#### Option B: Dedicated Database in Local PostgreSQL
+```sql
+-- Connect to your local PostgreSQL instance via psql:
+CREATE DATABASE amrutam_test_db;
+```
+Configure `TEST_DATABASE_URL="postgresql://amrutam_user:amrutam_password@localhost:5432/amrutam_test_db?schema=public"` in `.env`.
+
+#### Option C: Dedicated Cloud Test Schema (Supabase / Neon)
+Create a separate project or a separate schema dedicated exclusively for testing. **Never** point `TEST_DATABASE_URL` to your production database!
+
+---
+
+## 15. Phase 10: Infrastructure and Observability
+
+The Amrutam Telemedicine Backend includes production-grade containerization, Prometheus metrics, distributed tracing, automated Grafana dashboards, and GitHub Actions CI pipelines.
+
+### 15.1. Containerized Services Architecture (`docker-compose.yml`)
+
+The platform is orchestrated into five containerized services connected via an internal bridge network (`amrutam-network`):
+
+| Service | Container Name | Image | Port | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| **API** | `amrutam-backend-api` | Built via `Dockerfile` (Node 22-alpine) | `5000:5000` | Express REST API server with non-root security context |
+| **PostgreSQL** | `amrutam-postgres` | `postgres:16-alpine` | `5432:5432` | Primary relational database with healthcheck |
+| **Redis** | `amrutam-redis` | `redis:7-alpine` | `6379:6379` | In-memory cache and rate-limiting store |
+| **Prometheus** | `amrutam-prometheus` | `prom/prometheus:v2.54.1` | `9090:9090` | Time-series scraper collecting metrics from `api:5000/metrics` |
+| **Grafana** | `amrutam-grafana` | `grafana/grafana:11.1.0` | `3000:3000` | Pre-provisioned metrics dashboard and visualization |
+
+### 15.2. Docker Commands Quick Reference
+
+```bash
+# 1. Build and start all services in the background
+docker-compose up -d --build
+
+# 2. Check service status and health
+docker-compose ps
+
+# 3. View live logs from all containers or a specific service
+docker-compose logs -f
+docker-compose logs -f api
+
+# 4. Stop all services without deleting persistent database volumes
+docker-compose down
+
+# 5. Stop all services and remove persistent volumes (full reset)
+docker-compose down -v
+```
+
+### 15.3. Prometheus HTTP Request Metrics (`GET /metrics`)
+
+The API exposes standard Prometheus-formatted metrics at `http://localhost:5000/metrics`:
+
+- **Metrics Exposed**:
+  - `http_requests_total`: Total requests partitioned by `method`, `route`, and `status_code`.
+  - `http_request_duration_seconds`: High-resolution latency histogram with standard buckets (`[0.005, 0.01, ..., 10]`) by `method`, `route`, and `status_code`.
+  - `http_requests_in_flight`: Current active concurrent requests by `method`.
+  - `http_errors_total`: Counter tracking `4xx` and `5xx` error responses.
+  - `app_uptime_seconds`: Node.js process uptime in seconds.
+  - `nodejs_memory_heap_used_bytes`: Runtime heap memory consumption.
+- **Cardinality Protection**: Dynamic path parameters (UUIDs, database IDs, slugs) are automatically normalized into route templates (e.g. `/api/v1/doctors/:id`) to prevent Prometheus memory exhaustion.
+
+### 15.4. Distributed Tracing & W3C TraceContext
+
+- **Trace Correlation**: All incoming requests are automatically tagged with a W3C-compliant `traceparent` header (`00-<trace_id>-<span_id>-01`) and `X-Trace-Id`.
+- **Context Preservation**: Existing client `traceparent` headers are respected and propagated, generating a new child span ID while preserving the parent `traceId`.
+- **Structured Log Correlation**: Request and error logs emitted by Pino automatically include `traceId`, `spanId`, and `requestId`.
+- **Optional OTLP Exporter**: Trace data can be exported to OpenTelemetry collectors (Jaeger / Tempo / Datadog) by setting `OTEL_EXPORTER_OTLP_ENDPOINT` in `.env`. Exporter failures are non-blocking and will never crash user requests.
+
+### 15.5. Automated Grafana Dashboard
+
+Grafana is pre-configured with zero-touch provisioning:
+- **URL**: `http://localhost:3000`
+- **Default Credentials**: `admin` / `admin`
+- **Provisioned Datasource**: Prometheus (`http://prometheus:9090`)
+- **Dashboard**: **"Amrutam Telemedicine Backend Overview"**
+  - **Panels**: Application Uptime, In-Flight Concurrent Requests, Process Memory, HTTP Request Rate (QPS), Error Rates (4xx/5xx), and p50/p95/p99 Latency.
+
+### 15.6. Health Probes & Graceful Shutdown
+
+- `GET /health`: General service health and process uptime.
+- `GET /health/live`: Lightweight liveness probe for Kubernetes / Docker container health checks.
+- `GET /health/ready`: Deep readiness probe checking PostgreSQL and Redis socket connectivity. Returns `200 OK` when ready, `503 Service Unavailable` if degraded.
+- **Graceful Shutdown**: Listens for `SIGTERM` and `SIGINT`, gracefully stops accepting new HTTP connections, and cleanly closes PostgreSQL and Redis pools before terminating.
+
+### 15.7. Continuous Integration Pipeline (`.github/workflows/ci.yml`)
+
+The GitHub Actions CI pipeline runs on every push and pull request to `main`:
+1. Checks out repository.
+2. Sets up Node.js 22 with npm cache.
+3. Spawns isolated PostgreSQL 16 and Redis 7 service containers.
+4. Executes deterministic `npm ci`.
+5. Validates Prisma schema with `npx prisma validate`.
+6. Generates Prisma Client with `npx prisma generate`.
+7. Executes fast unit test suite with `npm run test:unit`.
+8. Deploys database migrations to test database with `npx prisma migrate deploy`.
+9. Executes integration, concurrency, and lifecycle test suite with `npm run test:integration`.
+10. Performs security audit with `npm audit --audit-level=high`.
+
+---
+
+## 16. Comprehensive Troubleshooting Guide
+
+| Issue / Symptom | Root Cause | Practical Resolution |
+| :--- | :--- | :--- |
+| **Server fails to start: `ZodError: Invalid environment variables`** | One or more mandatory variables in `.env` are missing, malformed, or fail cryptographic separation. | Check the console error output. Ensure `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, and `MFA_ENCRYPTION_KEY` are all at least 32 characters long and distinct from each other. |
+| **`Can't reach database server at aws-0-ap-south-1.pooler.supabase.com`** | PostgreSQL port or connection string issue, or network blocking outgoing port `6543`. | 1. Ensure `?sslmode=require` is appended to `DATABASE_URL`.<br/>2. If connecting from restrictive corporate networks, use direct port `5432` instead of pooler port `6543`.<br/>3. Verify IP whitelist in Supabase Network Restrictions. |
+| **`P1001: Can't reach database server` during migrations** | Prisma migrations attempting to run through connection pooler (port 6543 / PgBouncer). | Set `DIRECT_URL="postgresql://...:5432/..."` in `.env`. Prisma uses `directUrl` specifically for migration DDL commands. |
+| **`Redis client offline / Connection refused`** | Local Redis daemon is not running on port 6379. | Start Redis via `docker-compose up -d redis` or install local Redis service. The backend will continue to start and operate in degraded fallback mode. |
+| **`Error: listen EADDRINUSE: address already in use :::5000`** | Another process is already bound to port 5000. | Terminate the occupying process or set `PORT=5001` in your `.env` file. |
+| **`HTTP 409: SLOT_UNAVAILABLE`** | The requested availability slot has already been booked by another patient. | The slot was reserved concurrently. Refresh available slots via `GET /api/v1/doctors` or select another slot. |
+| **`HTTP 409: IDEMPOTENCY_KEY_MISMATCH`** | The same `Idempotency-Key` was reused with a different request payload (`slotId`). | Generate a fresh unique UUID for the new booking attempt, or keep payload identical when retrying. |
+| **`HTTP 401: UNAUTHORIZED / Token expired`** | The short-lived JWT access token (`15m`) has expired. | Call `POST /api/v1/auth/refresh` with the HttpOnly refresh cookie to obtain a fresh access token. |
+| **`HTTP 403: MFA verification required`** | Accessing `/api/v1/admin/*` routes without completing the TOTP challenge. | Call `POST /api/v1/auth/mfa/verify` with your TOTP code to obtain an MFA-verified access token. |
+| **`ERR_ERL_STORE_REUSE` in tests** | Shared RedisStore instance across multiple rate limiters. | Resolved via dedicated `createRedisStore('prefix')` instances per rate limiter in `src/common/middleware/rateLimiter.js`. |
+| **Docker container health check failing (`wget http://localhost:5000/health/live`)** | Node.js process crashed or database connection hung during boot. | Inspect container logs via `docker-compose logs api` to observe cold-boot startup errors. |
+
+---
+
+## 17. Security, Privacy & Data Safety Rules
+
+1. **Zero Real Credentials in Git**: Never commit `.env` or production credentials. Keep `.gitignore` updated with `.env`, `.env.*`, and `!.env.example`.
+2. **Dedicated Test Database**: Never run automated integration tests against your primary development or cloud Supabase database. Always configure `TEST_DATABASE_URL` pointing to an isolated test database.
+3. **Never Reset Production**: Never execute `npx prisma migrate reset` or `prisma db push --force-reset` on a database with active clinical records. Always use `npx prisma migrate deploy` for forward-only migrations.
+4. **Log Privacy**: Never remove or bypass `redactPaths` in `src/common/logger/logger.js`. Avoid logging raw medical notes or prescription bodies.
+
 
 
 #   a m r u t a m - t e l e m e d i c i n e - b a c k e n d - t a s k  
