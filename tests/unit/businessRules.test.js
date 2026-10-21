@@ -192,7 +192,7 @@ describe('Business Rules & Lifecycle Transition Matrix (Phase 9 / Section 3)', (
 
       const result = createSlotSchema.safeParse(invalidSlot);
       expect(result.success).toBe(false);
-      expect(result.error.issues[0].message).toContain('endTime must be after startTime');
+      expect(result.error.issues[0].message).toContain('endTime must be strictly later than startTime');
     });
 
     it('accepts valid future slot times', () => {

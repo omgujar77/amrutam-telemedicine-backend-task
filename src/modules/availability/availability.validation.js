@@ -11,7 +11,9 @@ export const createSlotSchema = z.object({
   { message: 'startTime cannot be in the past', path: ['startTime'] }
 );
 
-export const listDoctorSlotsQuerySchema = z.object({
+export const listMySlotsQuerySchema = z.object({
   status: z.enum(['AVAILABLE', 'RESERVED', 'BOOKED', 'CANCELLED']).optional(),
   date: z.string().optional()
 });
+
+export const listDoctorSlotsQuerySchema = listMySlotsQuerySchema;
