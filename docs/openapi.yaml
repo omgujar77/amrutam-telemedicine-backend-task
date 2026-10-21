@@ -1,0 +1,491 @@
+openapi: 3.0.3
+info:
+  title: Amrutam Telemedicine Backend API
+  description: >
+    Production-grade telemedicine backend for Amrutam Ayurveda.
+    Supports patient consultations, doctor availability, electronic prescriptions, and transactional booking with idempotency.
+  version: 1.0.0
+servers:
+  - url: http://localhost:5000/api/v1
+    description: Local development server
+paths:
+  /auth/register:
+    post:
+      summary: Register a new patient account
+      tags: [Authentication]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, email, password]
+              properties:
+                name: { type: string, example: "Rahul Verma" }
+                email: { type: string, format: email, example: "rahul@amrutam.local" }
+                password: { type: string, format: password, example: "SecurePass123!" }
+                bloodGroup: { type: string, example: "O+" }
+      responses:
+        '201':
+          description: Patient account created successfully
+        '400':
+          description: Validation error
+        '409':
+          description: Email already registered
+
+  /auth/login:
+    post:
+      summary: Authenticate credentials and receive access token
+      tags: [Authentication]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string, format: password }
+      responses:
+        '200':
+          description: Authentication successful
+        '401':
+          description: Invalid email or password
+
+  /doctors:
+    get:
+      summary: Search doctors with advanced filters and bounded pagination
+      tags: [Doctors]
+      parameters:
+        - in: query
+          name: search
+          schema: { type: string }
+          description: Search by name, specialization, or qualification
+        - in: query
+          name: name
+          schema: { type: string }
+          description: Filter specifically by doctor name
+        - in: query
+          name: specialization
+          schema: { type: string }
+          description: Filter by Ayurvedic specialization
+        - in: query
+          name: verificationStatus
+          schema: { type: string, enum: [PENDING, VERIFIED, REJECTED] }
+          description: Filter by credential verification status
+        - in: query
+          name: availableDate
+          schema: { type: string, format: date, example: "2026-10-25" }
+          description: Filter doctors with available slots on given date (YYYY-MM-DD)
+        - in: query
+          name: maxFee
+          schema: { type: number, minimum: 0 }
+          description: Maximum consultation fee
+        - in: query
+          name: minExperience
+          schema: { type: integer, minimum: 0 }
+          description: Minimum years of medical experience
+        - in: query
+          name: page
+          schema: { type: integer, default: 1, minimum: 1 }
+        - in: query
+          name: pageSize
+          schema: { type: integer, default: 10, minimum: 1, maximum: 50 }
+      responses:
+        '200':
+          description: Paginated list of doctors
+
+  /doctors/{doctorId}/availability:
+    get:
+      summary: Get bookable availability slots for a doctor
+      tags: [Doctors]
+      parameters:
+        - in: path
+          name: doctorId
+          required: true
+          schema: { type: string }
+        - in: query
+          name: date
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: List of available consultation slots
+
+  /doctors/me/availability:
+    post:
+      summary: Publish an availability slot (Doctor only)
+      security: [{ bearerAuth: [] }]
+      tags: [Doctors]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [startTime, endTime]
+              properties:
+                startTime: { type: string, format: date-time, example: "2026-11-10T09:00:00.000Z" }
+                endTime: { type: string, format: date-time, example: "2026-11-10T09:30:00.000Z" }
+      responses:
+        '201':
+          description: Availability slot published
+        '409':
+          description: Duplicate or overlapping slot conflict
+
+  /bookings:
+    post:
+      summary: Reserve a slot and create consultation booking (Patient only)
+      security: [{ bearerAuth: [] }]
+      tags: [Bookings]
+      parameters:
+        - in: header
+          name: Idempotency-Key
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [slotId]
+              properties:
+                slotId: { type: string, example: "slot-uuid-1" }
+      responses:
+        '201':
+          description: Booking confirmed successfully
+        '200':
+          description: Booking retrieved via idempotency replay
+        '409':
+          description: Slot already booked or idempotency key mismatch
+
+  /consultations/{consultationId}/start:
+    post:
+      summary: Start a scheduled consultation (Assigned Doctor only)
+      security: [{ bearerAuth: [] }]
+      tags: [Consultations]
+      parameters:
+        - in: path
+          name: consultationId
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Consultation status transitioned to IN_PROGRESS
+        '403':
+          description: Not the assigned doctor
+        '409':
+          description: Invalid lifecycle transition
+
+  /consultations/{consultationId}/complete:
+    post:
+      summary: Complete an in-progress consultation (Assigned Doctor only)
+      security: [{ bearerAuth: [] }]
+      tags: [Consultations]
+      parameters:
+        - in: path
+          name: consultationId
+          required: true
+          schema: { type: string }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                notes: { type: string, example: "Patient advised follow-up in 2 weeks" }
+      responses:
+        '200':
+          description: Consultation completed successfully
+        '403':
+          description: Not the assigned doctor
+        '409':
+          description: Invalid lifecycle transition
+
+  /consultations/me:
+    get:
+      summary: Get authenticated user's consultations (Patient or Doctor)
+      security: [{ bearerAuth: [] }]
+      tags: [Consultations]
+      parameters:
+        - in: query
+          name: status
+          schema: { type: string, enum: [SCHEDULED, IN_PROGRESS, COMPLETED, CANCELLED] }
+        - in: query
+          name: page
+          schema: { type: integer, default: 1 }
+        - in: query
+          name: pageSize
+          schema: { type: integer, default: 10 }
+      responses:
+        '200':
+          description: Paginated consultations
+
+  /consultations/{consultationId}:
+    get:
+      summary: Get consultation details by ID
+      security: [{ bearerAuth: [] }]
+      tags: [Consultations]
+      parameters:
+        - in: path
+          name: consultationId
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Consultation details
+        '403':
+          description: Not authorized to view consultation
+
+  /consultations/{consultationId}/prescriptions:
+    post:
+      summary: Issue an electronic prescription (Assigned Doctor only)
+      security: [{ bearerAuth: [] }]
+      tags: [Prescriptions]
+      parameters:
+        - in: path
+          name: consultationId
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [medicines, dosageInstructions]
+              properties:
+                medicines:
+                  type: array
+                  items:
+                    type: object
+                    required: [name, dosage, frequency, duration]
+                    properties:
+                      name: { type: string, example: "Ashwagandha Churna" }
+                      dosage: { type: string, example: "1 teaspoon (3g)" }
+                      frequency: { type: string, example: "Twice daily with warm milk" }
+                      duration: { type: string, example: "30 days" }
+                dosageInstructions: { type: string, example: "Take after meals" }
+                advice: { type: string, example: "Avoid fermented foods" }
+      responses:
+        '201':
+          description: Prescription issued successfully
+        '403':
+          description: Not the assigned doctor
+        '409':
+          description: Consultation not in eligible state (IN_PROGRESS or COMPLETED)
+    get:
+      summary: Get prescriptions for a consultation
+      security: [{ bearerAuth: [] }]
+      tags: [Prescriptions]
+      parameters:
+        - in: path
+          name: consultationId
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: List of prescriptions
+
+  /prescriptions/me:
+    get:
+      summary: Retrieve authenticated user's prescriptions with bounded pagination
+      security: [{ bearerAuth: [] }]
+      tags: [Prescriptions]
+      parameters:
+        - in: query
+          name: page
+          schema: { type: integer, default: 1, minimum: 1 }
+        - in: query
+          name: pageSize
+          schema: { type: integer, default: 10, minimum: 1, maximum: 50 }
+      responses:
+        '200':
+          description: Paginated prescriptions list
+        '401':
+          description: Authentication required
+
+  /prescriptions/{prescriptionId}:
+    get:
+      summary: Get prescription details by ID
+      security: [{ bearerAuth: [] }]
+      tags: [Prescriptions]
+      parameters:
+        - in: path
+          name: prescriptionId
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Prescription details
+        '403':
+          description: Access forbidden for non-associated users
+        '404':
+          description: Prescription not found
+
+  /auth/mfa/setup:
+    post:
+      summary: Initiate TOTP MFA enrollment (Privileged ADMIN/DOCTOR only)
+      security: [{ bearerAuth: [] }]
+      tags: [MFA]
+      responses:
+        '200':
+          description: TOTP secret and enrollment URI generated
+        '401':
+          description: Authentication required
+        '403':
+          description: Forbidden for non-privileged roles
+
+  /auth/mfa/verify:
+    post:
+      summary: Verify initial 6-digit TOTP code and enable MFA
+      security: [{ bearerAuth: [] }]
+      tags: [MFA]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code: { type: string, pattern: '^[0-9]{6}$', example: "123456" }
+      responses:
+        '200':
+          description: MFA enabled; new access token with mfaVerified=true issued
+        '400':
+          description: Invalid or expired verification code
+
+  /auth/mfa/challenge:
+    post:
+      summary: Verify TOTP code during privileged login challenge
+      security: [{ bearerAuth: [] }]
+      tags: [MFA]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code: { type: string, pattern: '^[0-9]{6}$', example: "123456" }
+      responses:
+        '200':
+          description: MFA challenge passed; issued full access token
+        '400':
+          description: Invalid MFA code
+
+  /auth/mfa/status:
+    get:
+      summary: Check MFA enrollment status for current user
+      security: [{ bearerAuth: [] }]
+      tags: [MFA]
+      responses:
+        '200':
+          description: Current user MFA status
+
+  /auth/mfa/disable:
+    post:
+      summary: Disable MFA (Requires current valid TOTP code)
+      security: [{ bearerAuth: [] }]
+      tags: [MFA]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code: { type: string, pattern: '^[0-9]{6}$' }
+      responses:
+        '200':
+          description: MFA disabled
+
+  /admin/doctors/{doctorId}/verify:
+    post:
+      summary: Privileged doctor verification (Requires ADMIN role and MFA verification)
+      security: [{ bearerAuth: [] }]
+      tags: [Admin]
+      parameters:
+        - in: path
+          name: doctorId
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [verificationStatus]
+              properties:
+                verificationStatus: { type: string, enum: [VERIFIED, REJECTED] }
+      responses:
+        '200':
+          description: Doctor status updated
+        '403':
+          description: MFA required or not an admin
+
+  /admin/audit-logs:
+    get:
+      summary: Inspect system audit logs (Requires ADMIN role and MFA verification)
+      security: [{ bearerAuth: [] }]
+      tags: [Admin]
+      parameters:
+        - in: query
+          name: action
+          schema: { type: string }
+        - in: query
+          name: page
+          schema: { type: integer, default: 1 }
+        - in: query
+          name: pageSize
+          schema: { type: integer, default: 20 }
+      responses:
+        '200':
+          description: Paginated audit logs
+
+  /admin/overview:
+    get:
+      summary: Platform security and health overview (Requires ADMIN role and MFA verification)
+      security: [{ bearerAuth: [] }]
+      tags: [Admin]
+      responses:
+        '200':
+          description: Platform statistics
+
+  /admin/analytics/overview:
+    get:
+      summary: Aggregate platform analytics with time-window filtering (Requires ADMIN role and MFA verification)
+      security: [{ bearerAuth: [] }]
+      tags: [Admin Analytics]
+      parameters:
+        - in: query
+          name: window
+          schema: { type: string, enum: [7d, 30d, 90d], default: 30d }
+          description: Predefined time window
+        - in: query
+          name: startDate
+          schema: { type: string, format: date-time }
+          description: Custom window start in UTC ISO-8601
+        - in: query
+          name: endDate
+          schema: { type: string, format: date-time }
+          description: Custom window end in UTC ISO-8601
+      responses:
+        '200':
+          description: Platform analytics overview with aggregate counts
+        '401':
+          description: Authentication required
+        '403':
+          description: Admin role and MFA verification required
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
