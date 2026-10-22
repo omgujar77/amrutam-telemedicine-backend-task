@@ -36,6 +36,10 @@ export const registerSchema = z.object({
     .string()
     .max(20)
     .optional(),
+  phone: z
+    .string()
+    .max(20)
+    .optional(),
   emergencyContact: z
     .string()
     .max(100)

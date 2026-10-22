@@ -31,6 +31,15 @@ export function getPrismaClient() {
         logger.debug({ query: e.query, durationMs: e.duration }, 'Database query executed');
       });
     }
+
+    // Default safe timeout for cloud database roundtrips (Supabase / SSL)
+    const originalTransaction = prismaInstance.$transaction.bind(prismaInstance);
+    prismaInstance.$transaction = (arg, options) => {
+      if (typeof arg === 'function') {
+        return originalTransaction(arg, { maxWait: 10000, timeout: 20000, ...options });
+      }
+      return originalTransaction(arg, options);
+    };
   }
 
   return prismaInstance;

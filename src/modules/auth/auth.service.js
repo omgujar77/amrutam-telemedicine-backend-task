@@ -54,7 +54,9 @@ export const authService = {
             create: {
               ...(profileFields.dateOfBirth && { dateOfBirth: new Date(profileFields.dateOfBirth) }),
               ...(profileFields.gender && { gender: profileFields.gender }),
-              ...(profileFields.phoneNumber && { phoneNumber: profileFields.phoneNumber }),
+              ...((profileFields.phoneNumber || profileFields.phone) && { 
+                phoneNumber: profileFields.phoneNumber || profileFields.phone 
+              }),
               ...(profileFields.emergencyContact && { emergencyContact: profileFields.emergencyContact }),
               ...(profileFields.bloodGroup && { bloodGroup: profileFields.bloodGroup }),
               ...(profileFields.allergies && { allergies: profileFields.allergies })

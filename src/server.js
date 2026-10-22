@@ -12,8 +12,8 @@ async function startServer() {
 
     // Attempt connectivity verification on startup (warn if services unavailable during cold boot)
     const [dbStatus, redisStatus] = await Promise.all([
-      checkDatabaseConnection(2000),
-      checkRedisConnection(2000)
+      checkDatabaseConnection(5000),
+      checkRedisConnection(5000)
     ]);
 
     if (dbStatus.isReady) {
